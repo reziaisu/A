@@ -2,119 +2,160 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>避けゲー</title>
+<title>DODGE × 弾幕（リアル画像・避けゲー）</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-  body {
-    background: #111;
-    color: white;
-    text-align: center;
-    font-family: sans-serif;
-  }
-  canvas {
-    background: black;
-    display: block;
-    margin: 20px auto;
-    border: 2px solid #555;
-  }
+body{margin:0;background:#000;color:#fff;text-align:center;font-family:sans-serif}
+canvas{display:block;margin:auto;border:2px solid #555}
+.controls{display:flex;justify-content:space-around;margin:15px}
+.btn{width:120px;height:120px;font-size:48px;background:#222;color:#fff;border-radius:50%}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.9);display:flex;flex-direction:column;justify-content:center;align-items:center}
+.overlay button{margin:10px;padding:20px 40px;font-size:28px}
+.flash{position:fixed;inset:0;background:rgba(255,0,0,.3);opacity:0;pointer-events:none}
+.flash.on{opacity:1}
 </style>
 </head>
 <body>
 
-<h1>🔥 避けゲー</h1>
-<p>スコア：<span id="score">0</span></p>
+<h3>
+スコア:<span id="score">0</span>
+❤️:<span id="life">3</span>
+🏆:<span id="highScore">0</span>
+</h3>
 
 <canvas id="game" width="400" height="500"></canvas>
 
+<div class="controls">
+  <button class="btn" id="leftBtn">◀</button>
+  <button class="btn" id="rightBtn">▶</button>
+</div>
+
+<div class="overlay" id="titleScreen"><h1>TAP TO START</h1></div>
+
+<div class="overlay" id="overlay" style="display:none">
+  <h2>難易度</h2>
+  <button onclick="startGame('easy')">EASY</button>
+  <button onclick="startGame('normal')">NORMAL</button>
+  <button onclick="startGame('hard')">HARD</button>
+</div>
+
+<div class="overlay" id="gameOverScreen" style="display:none">
+  <h1>GAME OVER</h1>
+  <button onclick="goHome()">ホームに戻る</button>
+</div>
+
+<div class="flash" id="flash"></div>
+
 <script>
-const canvas = document.getElementById("game");
-const ctx = canvas.getContext("2d");
+const ctx = game.getContext("2d");
 
-let player = { x: 180, y: 460, w: 40, h: 40 };
-let enemies = [];
-let score = 0;
-let gameOver = false;
-let speed = 2;
+/* ===== 画像読み込み ===== */
+const playerImg = new Image();
+playerImg.src = "https://fastpng.com/thumb/spaceship/png-transparent-space-shuttle-rocket-spacecraft-spaceship-png-clip-art-thumbnail.png";
 
-// キー操作
-let left = false, right = false;
-document.addEventListener("keydown", e => {
-  if (e.key === "ArrowLeft") left = true;
-  if (e.key === "ArrowRight") right = true;
-});
-document.addEventListener("keyup", e => {
-  if (e.key === "ArrowLeft") left = false;
-  if (e.key === "ArrowRight") right = false;
-});
+const enemyImgs = [new Image(), new Image()];
+enemyImgs[0].src = "https://toppng.com/uploads/preview/spaceship-png-png-free-png-images-122847.png";
+enemyImgs[1].src = "https://toppng.com/uploads/preview/spaceship-png-png-free-png-images-122837.png";
 
-// 敵を作る
-function createEnemy() {
-  enemies.push({
-    x: Math.random() * 360,
-    y: -40,
-    w: 40,
-    h: 40
-  });
+const meteorImg = new Image();
+meteorImg.src = "https://fastpng.com/thumb/asteroid/png-transparent-asteroid-meteor-space-rock-asteroid-meteorite-spacecraft-spacecraft-asteroid-mammal-thumbnail.png";
+
+/* ===== 状態 ===== */
+let player=null, enemies=[], bullets=[];
+let left=false,right=false;
+let scoreV=0,lifeV=3,invincible=0;
+let playing=false, enemyRate=0.03;
+let highScoreV=localStorage.getItem("highScore")||0; highScore.textContent=highScoreV;
+
+/* ===== 操作 ===== */
+leftBtn.ontouchstart=e=>{e.preventDefault();left=true}; leftBtn.ontouchend=()=>left=false;
+rightBtn.ontouchstart=e=>{e.preventDefault();right=true}; rightBtn.ontouchend=()=>right=false;
+
+/* ===== 当たり判定 ===== */
+function hitEllipseCircle(px,py,rx,ry,cx,cy,cr){ const dx=(cx-px)/rx; const dy=(cy-py)/ry; return dx*dx+dy*dy<=1; }
+
+/* ===== 敵生成 ===== */
+function createEnemy(){
+  if(Math.random()<0.5){
+    enemies.push({type:"meteor",x:Math.random()*350,y:-50,w:50,h:50,vy:1.5,rot:(Math.random()-0.5)*0.05,angle:0,img:meteorImg});
+  } else {
+    enemies.push({type:"ship",x:Math.random()*360,y:40,w:40,h:40,vx:(Math.random()<0.5?-1:1)*1.5,vy:0,shoot:0,img:enemyImgs[Math.floor(Math.random()*enemyImgs.length)]});
+  }
 }
 
-// 当たり判定
-function hit(a, b) {
-  return (
-    a.x < b.x + b.w &&
-    a.x + a.w > b.x &&
-    a.y < b.y + b.h &&
-    a.y + a.h > b.y
-  );
+/* ===== 開始 ===== */
+function startGame(diff){
+  titleScreen.style.display="none"; overlay.style.display="none"; gameOverScreen.style.display="none";
+  player={x:180,y:440,w:40,h:40}; enemies=[]; bullets=[];
+  scoreV=0; invincible=0;
+  if(diff==="easy"){lifeV=3; enemyRate=0.02;}
+  else if(diff==="hard"){lifeV=2; enemyRate=0.05;}
+  else{lifeV=3; enemyRate=0.03;}
+  score.textContent=scoreV; life.textContent=lifeV; playing=true;
 }
 
-function update() {
-  if (gameOver) return;
+/* ===== ダメージ ===== */
+function damage(){ if(invincible>0) return; lifeV--; life.textContent=lifeV; invincible=60; flash.classList.add("on"); setTimeout(()=>flash.classList.remove("on"),120); if(lifeV<=0) gameOver(); }
+function gameOver(){ playing=false; gameOverScreen.style.display="flex"; overlay.style.display="flex"; }
 
-  // プレイヤー移動
-  if (left && player.x > 0) player.x -= 5;
-  if (right && player.x < 360) player.x += 5;
+/* ===== ホーム ===== */
+function goHome(){ gameOverScreen.style.display="none"; titleScreen.style.display="flex"; overlay.style.display="none"; }
 
-  // 敵処理
-  for (let e of enemies) {
-    e.y += speed;
-    if (hit(player, e)) {
-      gameOver = true;
-      alert("ゲームオーバー！ スコア：" + score);
+/* ===== 更新 ===== */
+function update(){
+  if(!playing||!player) return;
+  if(invincible>0) invincible--;
+  if(left&&player.x>0) player.x-=6;
+  if(right&&player.x<360) player.x+=6;
+
+  // 敵と弾の動き
+  for(const e of enemies){
+    if(e.type==="meteor"){
+      e.vy+=0.05; e.y+=e.vy; e.angle+=e.rot;
+      if(hitEllipseCircle(player.x+20,player.y+22,12,16,e.x+25,e.y+25,25)) damage();
+    } else {
+      e.x+=e.vx;
+      e.vy+=Math.sin(Date.now()/200+e.x)*0.5;
+      e.y+=e.vy*0.1;
+      if(e.x<0||e.x>360) e.vx*=-1;
+      e.shoot++;
+      if(e.shoot>60){
+        const pattern=Math.floor(Math.random()*4);
+        switch(pattern){
+          case 0: bullets.push({x:e.x+20,y:e.y+30,vx:0,vy:4,w:6,h:16,color:"#ffcc33"}); break;
+          case 1: bullets.push({x:e.x+20,y:e.y+30,vx:2,vy:3,w:6,h:16,color:"#ff6666"});
+                  bullets.push({x:e.x+20,y:e.y+30,vx:-2,vy:3,w:6,h:16,color:"#ff6666"}); break;
+          case 2: bullets.push({x:e.x+20,y:e.y+30,vx:0,vy:3,w:5,h:14,color:"#33ff33"}); break;
+          case 3: bullets.push({x:e.x+20,y:e.y+30,vx:0,vy:6,w:6,h:20,color:"#ffff33"}); break;
+        }
+        e.shoot=0;
+      }
     }
   }
 
-  enemies = enemies.filter(e => e.y < 500);
-
-  score++;
-  document.getElementById("score").textContent = score;
-
-  // 難易度アップ
-  if (score % 300 === 0) speed++;
-
-  // 敵生成
-  if (Math.random() < 0.03) createEnemy();
+  for(const b of bullets){ b.x+=b.vx; b.y+=b.vy; if(hitEllipseCircle(player.x+20,player.y+22,12,16,b.x,b.y,b.w/2)) damage(); }
+  enemies=enemies.filter(e=>e.y<520); bullets=bullets.filter(b=>b.y<520);
+  scoreV++; score.textContent=scoreV; if(Math.random()<enemyRate) createEnemy();
 }
 
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // プレイヤー
-  ctx.fillStyle = "cyan";
-  ctx.fillRect(player.x, player.y, player.w, player.h);
-
-  // 敵
-  ctx.fillStyle = "red";
-  for (let e of enemies) {
-    ctx.fillRect(e.x, e.y, e.w, e.h);
+/* ===== 描画 ===== */
+function draw(){
+  ctx.fillStyle="#000"; ctx.fillRect(0,0,400,500);
+  if(player && invincible%10<5) ctx.drawImage(playerImg,player.x,player.y,40,40);
+  for(const e of enemies){
+    if(e.type==="meteor"){ ctx.save(); ctx.translate(e.x+25,e.y+25); ctx.rotate(e.angle); ctx.drawImage(e.img,-25,-25,50,50); ctx.restore(); }
+    else ctx.drawImage(e.img,e.x,e.y,40,40);
+  }
+  for(const b of bullets){
+    const grad=ctx.createLinearGradient(b.x,b.y,b.x,b.y+b.h);
+    grad.addColorStop(0,"white"); grad.addColorStop(0.5,b.color); grad.addColorStop(1,"transparent");
+    ctx.fillStyle=grad;
+    ctx.fillRect(b.x-b.w/2,b.y,b.w,b.h);
   }
 }
 
-function loop() {
-  update();
-  draw();
-  requestAnimationFrame(loop);
-}
-
-loop();
+titleScreen.onclick=()=>{ titleScreen.style.display="none"; overlay.style.display="flex"; };
+(function loop(){ update(); draw(); requestAnimationFrame(loop); })();
 </script>
 
 </body>
