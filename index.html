@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>避けゲー</title>
+<style>
+  body {
+    background: #111;
+    color: white;
+    text-align: center;
+    font-family: sans-serif;
+  }
+  canvas {
+    background: black;
+    display: block;
+    margin: 20px auto;
+    border: 2px solid #555;
+  }
+</style>
+</head>
+<body>
+
+<h1>🔥 避けゲー</h1>
+<p>スコア：<span id="score">0</span></p>
+
+<canvas id="game" width="400" height="500"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let player = { x: 180, y: 460, w: 40, h: 40 };
+let enemies = [];
+let score = 0;
+let gameOver = false;
+let speed = 2;
+
+// キー操作
+let left = false, right = false;
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowLeft") left = true;
+  if (e.key === "ArrowRight") right = true;
+});
+document.addEventListener("keyup", e => {
+  if (e.key === "ArrowLeft") left = false;
+  if (e.key === "ArrowRight") right = false;
+});
+
+// 敵を作る
+function createEnemy() {
+  enemies.push({
+    x: Math.random() * 360,
+    y: -40,
+    w: 40,
+    h: 40
+  });
+}
+
+// 当たり判定
+function hit(a, b) {
+  return (
+    a.x < b.x + b.w &&
+    a.x + a.w > b.x &&
+    a.y < b.y + b.h &&
+    a.y + a.h > b.y
+  );
+}
+
+function update() {
+  if (gameOver) return;
+
+  // プレイヤー移動
+  if (left && player.x > 0) player.x -= 5;
+  if (right && player.x < 360) player.x += 5;
+
+  // 敵処理
+  for (let e of enemies) {
+    e.y += speed;
+    if (hit(player, e)) {
+      gameOver = true;
+      alert("ゲームオーバー！ スコア：" + score);
+    }
+  }
+
+  enemies = enemies.filter(e => e.y < 500);
+
+  score++;
+  document.getElementById("score").textContent = score;
+
+  // 難易度アップ
+  if (score % 300 === 0) speed++;
+
+  // 敵生成
+  if (Math.random() < 0.03) createEnemy();
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // プレイヤー
+  ctx.fillStyle = "cyan";
+  ctx.fillRect(player.x, player.y, player.w, player.h);
+
+  // 敵
+  ctx.fillStyle = "red";
+  for (let e of enemies) {
+    ctx.fillRect(e.x, e.y, e.w, e.h);
+  }
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+
+</body>
+</html>
